@@ -149,9 +149,12 @@ function App() {
   const [selectionArea, setSelectionArea] = useState(null);
   const [selectedRegionIds, setSelectedRegionIds] = useState([]);
   const [layerMenu, setLayerMenu] = useState(null);
+  const [zoom, setZoom] = useState(1);
   const drawOrigin = useRef(null);
   const selectionOrigin = useRef(null);
   const groupMove = useRef(null);
+  const stageRef = useRef(null);
+  const gestureZoomStart = useRef(1);
   const activeProject = projects.find((project) => project.id === activeProjectId) || projects[0];
   const projectName = activeProject.name;
   const pages = activeProject.pages;
@@ -211,6 +214,33 @@ function App() {
   useEffect(() => {
     localStorage.setItem('framekit-project', JSON.stringify({ projects, activeProjectId }));
   }, [projects, activeProjectId]);
+
+  useEffect(() => {
+    const stage = stageRef.current;
+    if (!stage) return undefined;
+    const clampZoom = (value) => Math.min(2, Math.max(.5, value));
+    const handleWheel = (event) => {
+      if (!event.ctrlKey) return;
+      event.preventDefault();
+      setZoom((current) => clampZoom(current * Math.exp(-event.deltaY * .01)));
+    };
+    const handleGestureStart = (event) => {
+      event.preventDefault();
+      gestureZoomStart.current = zoom;
+    };
+    const handleGestureChange = (event) => {
+      event.preventDefault();
+      setZoom(clampZoom(gestureZoomStart.current * event.scale));
+    };
+    stage.addEventListener('wheel', handleWheel, { passive: false });
+    stage.addEventListener('gesturestart', handleGestureStart, { passive: false });
+    stage.addEventListener('gesturechange', handleGestureChange, { passive: false });
+    return () => {
+      stage.removeEventListener('wheel', handleWheel);
+      stage.removeEventListener('gesturestart', handleGestureStart);
+      stage.removeEventListener('gesturechange', handleGestureChange);
+    };
+  }, [zoom]);
 
   useEffect(() => {
     const handleKeyboard = (event) => {
@@ -646,9 +676,10 @@ function App() {
               <div className="editor-tools">{DRAW_TOOLS.map((item) => { const Icon = item.icon; return <button key={item.id} className={tool === item.id ? 'active' : ''} onClick={() => selectTool(item.id)} title={item.label} aria-label={item.label}><Icon size={16} /></button>; })}</div>
               <div className="clipboard-tools"><button onClick={copySelectedShape} disabled={!selectedShapes.length} aria-label="図形をコピー"><Copy size={16} /></button><button onClick={pasteShape} disabled={!clipboardShapes.length} aria-label="図形をペースト"><ClipboardText size={16} /></button></div>
             </div>
-            <span>{shapes.length} 要素</span>
+            <span>{shapes.length} 要素 / {Math.round(zoom * 100)}%</span>
           </div>
-          <div className={`device-stage ${platform === 'Web' ? 'web-stage' : ''}`}>
+          <div ref={stageRef} className={`device-stage ${platform === 'Web' ? 'web-stage' : ''}`}>
+            <div className="zoom-shell" style={{ '--canvas-zoom': zoom }}>
             <div className="device-frame">
               <div className="device-chrome">{platform === 'モバイル' ? <><span>9:41</span><i /></> : <><div><i /><i /><i /></div><span>app.local</span></>}</div>
               <div className="screen blank-screen" onPointerDown={beginRangeSelection} onPointerMove={continueRangeSelection} onPointerUp={finishRangeSelection}>
@@ -663,6 +694,7 @@ function App() {
                 {selectionBounds && <div className="multi-selection-box" style={{ left: selectionBounds.x, top: selectionBounds.y, width: selectionBounds.width, height: selectionBounds.height }}><span>{selectedShapeIds.length}個</span></div>}
                 {regions.map((region, index) => <div key={region.id} className={`intent-region ${selectedRegionIds.includes(region.id) ? 'is-active' : ''}`} style={{ left: region.x, top: region.y, width: region.width, height: region.height }}><span onClick={(event) => { event.stopPropagation(); selectRegion(region.id, event); }} onContextMenu={(event) => openRegionMenu(region.id, event)} title="クリックで選択、Shiftクリックで追加選択">{index + 1}</span></div>)}
               </div>
+            </div>
             </div>
           </div>
         </section>

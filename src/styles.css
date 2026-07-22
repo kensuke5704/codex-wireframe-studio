@@ -129,6 +129,10 @@ button:focus-visible, input:focus-visible, textarea:focus-visible { outline: 3px
 .clipboard-tools button { width: 32px; height: 32px; display: grid; place-items: center; border: 1px solid transparent; border-radius: 8px; background: transparent; color: var(--muted); }
 .clipboard-tools button:hover:not(:disabled) { color: var(--text); background: var(--surface-2); }
 .device-stage { padding: 30px; overflow: auto; display: grid; place-items: start center; flex: 1; }
+.zoom-shell { zoom: var(--canvas-zoom); }
+@supports not (zoom: 1) {
+  .zoom-shell { transform: scale(var(--canvas-zoom)); transform-origin: top center; }
+}
 .device-frame { width: 354px; min-height: 680px; background: #f8f9f7; border: 8px solid #2f332e; border-radius: 30px; overflow: hidden; box-shadow: var(--shadow), 0 0 0 1px rgba(255,255,255,.15) inset; transition: width .3s ease, border-radius .3s ease; }
 .web-stage .device-frame { width: min(850px, 100%); min-height: 570px; border-width: 6px; border-radius: 16px; }
 .device-chrome { height: 27px; padding: 0 15px; display: flex; justify-content: space-between; align-items: center; color: #3b4038; background: #f8f9f7; font-size: 9px; font-weight: 700; }
