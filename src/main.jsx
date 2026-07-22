@@ -27,6 +27,8 @@ import {
 import './styles.css';
 
 const nextId = () => Date.now() + Math.floor(Math.random() * 1000);
+const DEFAULT_TEXT = 'テキストを入力';
+const cloneWorkspace = (projects, activeProjectId) => structuredClone({ projects, activeProjectId });
 const createPage = (name = 'ページ 1') => ({ id: nextId(), name, platform: 'モバイル', shapes: [], regions: [] });
 const createProject = (name = '新しいワイヤーフレーム') => {
   const page = createPage();
@@ -119,7 +121,8 @@ function FreeShape({ shape, active, selectedCount, tool, zoom, onMoveStart, onCo
           contentEditable={active && selectedCount === 1 && tool === 'select'}
           suppressContentEditableWarning
           onPointerDown={(event) => { if (active && selectedCount === 1) event.stopPropagation(); }}
-          onBlur={(event) => onTextChange(event.currentTarget.textContent || 'テキスト')}
+          onFocus={(event) => { if (shape.text === DEFAULT_TEXT) event.currentTarget.textContent = ''; }}
+          onBlur={(event) => onTextChange(event.currentTarget.textContent || DEFAULT_TEXT)}
         >{shape.text}</span>
       )}
       {active && selectedCount === 1 && tool === 'select' && (
@@ -139,6 +142,14 @@ function App() {
   const initialWorkspace = useRef(loadWorkspace()).current;
   const [projects, setProjects] = useState(initialWorkspace.projects);
   const [activeProjectId, setActiveProjectId] = useState(initialWorkspace.activeProjectId);
+  const historyRef = useRef({
+    current: cloneWorkspace(initialWorkspace.projects, initialWorkspace.activeProjectId),
+    pending: null,
+    timer: null,
+    undo: [],
+    redo: [],
+    applying: false,
+  });
   const [rightTab, setRightTab] = useState('edit');
   const [copied, setCopied] = useState(false);
   const [mobilePanel, setMobilePanel] = useState(null);
@@ -158,7 +169,7 @@ function App() {
   const panInteraction = useRef(null);
   const stageRef = useRef(null);
   const screenViewportRef = useRef(null);
-  const gestureZoomStart = useRef(1);
+  const gestureZoomStart = useRef(null);
   const activeProject = projects.find((project) => project.id === activeProjectId) || projects[0];
   const projectName = activeProject.name;
   const pages = activeProject.pages;
@@ -179,6 +190,52 @@ function App() {
       const value = typeof update === 'function' ? update(page[field]) : update;
       return { ...page, [field]: value };
     }));
+  };
+
+  const commitPendingHistory = () => {
+    const history = historyRef.current;
+    if (history.timer) window.clearTimeout(history.timer);
+    history.timer = null;
+    if (!history.pending) return;
+    if (JSON.stringify(history.pending) !== JSON.stringify(history.current)) {
+      history.undo.push(history.current);
+      if (history.undo.length > 100) history.undo.shift();
+      history.current = history.pending;
+      history.redo = [];
+    }
+    history.pending = null;
+  };
+
+  const restoreWorkspace = (snapshot) => {
+    const history = historyRef.current;
+    history.applying = true;
+    history.current = snapshot;
+    history.pending = null;
+    setProjects(snapshot.projects);
+    setActiveProjectId(snapshot.activeProjectId);
+    setSelectedShapeIds([]);
+    setSelectedRegionIds([]);
+    setSelectionArea(null);
+    setSelectionBox(null);
+    setLayerMenu(null);
+  };
+
+  const undoWorkspace = () => {
+    commitPendingHistory();
+    const history = historyRef.current;
+    const previous = history.undo.pop();
+    if (!previous) return;
+    history.redo.push(history.current);
+    restoreWorkspace(previous);
+  };
+
+  const redoWorkspace = () => {
+    commitPendingHistory();
+    const history = historyRef.current;
+    const next = history.redo.pop();
+    if (!next) return;
+    history.undo.push(history.current);
+    restoreWorkspace(next);
   };
   const setShapes = (update) => updateActivePage('shapes', update);
   const setRegions = (update) => updateActivePage('regions', update);
@@ -220,21 +277,76 @@ function App() {
   }, [projects, activeProjectId]);
 
   useEffect(() => {
+    const history = historyRef.current;
+    const snapshot = cloneWorkspace(projects, activeProjectId);
+    if (history.applying) {
+      history.applying = false;
+      history.current = snapshot;
+      history.pending = null;
+      return undefined;
+    }
+    history.pending = snapshot;
+    if (history.timer) window.clearTimeout(history.timer);
+    history.timer = window.setTimeout(commitPendingHistory, 400);
+    return () => {
+      if (history.timer) window.clearTimeout(history.timer);
+    };
+  }, [projects, activeProjectId]);
+
+  useEffect(() => {
     const stage = stageRef.current;
     if (!stage) return undefined;
     const clampZoom = (value) => Math.min(2, Math.max(1, value));
+    const focusInViewport = (event, viewport) => {
+      const rect = viewport.getBoundingClientRect();
+      const x = Math.min(rect.width, Math.max(0, event.clientX - rect.left));
+      const y = Math.min(rect.height, Math.max(0, event.clientY - rect.top));
+      return { x, y };
+    };
+    const scrollToFocus = (viewport, focus, logical, nextZoom) => {
+      window.requestAnimationFrame(() => {
+        viewport.scrollLeft = logical.x * nextZoom - focus.x;
+        viewport.scrollTop = logical.y * nextZoom - focus.y;
+      });
+    };
     const handleWheel = (event) => {
       if (!event.ctrlKey) return;
       event.preventDefault();
-      setZoom((current) => clampZoom(current * Math.exp(-event.deltaY * .01)));
+      const viewport = screenViewportRef.current;
+      if (!viewport) return;
+      const focus = focusInViewport(event, viewport);
+      setZoom((current) => {
+        const nextZoom = clampZoom(current * Math.exp(-event.deltaY * .01));
+        const logical = {
+          x: (viewport.scrollLeft + focus.x) / current,
+          y: (viewport.scrollTop + focus.y) / current,
+        };
+        scrollToFocus(viewport, focus, logical, nextZoom);
+        return nextZoom;
+      });
     };
     const handleGestureStart = (event) => {
       event.preventDefault();
-      gestureZoomStart.current = zoom;
+      const viewport = screenViewportRef.current;
+      if (!viewport) return;
+      const focus = focusInViewport(event, viewport);
+      gestureZoomStart.current = {
+        zoom,
+        focus,
+        logical: {
+          x: (viewport.scrollLeft + focus.x) / zoom,
+          y: (viewport.scrollTop + focus.y) / zoom,
+        },
+      };
     };
     const handleGestureChange = (event) => {
       event.preventDefault();
-      setZoom(clampZoom(gestureZoomStart.current * event.scale));
+      const viewport = screenViewportRef.current;
+      const start = gestureZoomStart.current;
+      if (!viewport || !start) return;
+      const nextZoom = clampZoom(start.zoom * event.scale);
+      scrollToFocus(viewport, start.focus, start.logical, nextZoom);
+      setZoom(nextZoom);
     };
     stage.addEventListener('wheel', handleWheel, { passive: false });
     stage.addEventListener('gesturestart', handleGestureStart, { passive: false });
@@ -274,6 +386,12 @@ function App() {
       const tag = document.activeElement?.tagName;
       if (tag === 'INPUT' || tag === 'TEXTAREA' || document.activeElement?.isContentEditable) return;
       const modifier = event.metaKey || event.ctrlKey;
+      if (modifier && event.key.toLowerCase() === 'z') {
+        event.preventDefault();
+        if (event.shiftKey) redoWorkspace();
+        else undoWorkspace();
+        return;
+      }
       if (modifier && event.key.toLowerCase() === 'c' && selectedShapes.length) {
         event.preventDefault();
         const copied = selectedShapes.map((shape) => ({ ...shape }));
@@ -512,7 +630,7 @@ function App() {
     if (tool === 'text') {
       const shape = {
         id: nextId(), type: 'text', x: point.x, y: point.y, width: 150, height: 34,
-        text: 'テキストを入力', color: '#20221e', border: '#20221e', fontSize: 16,
+        text: DEFAULT_TEXT, color: '#20221e', border: '#20221e', fontSize: 16,
       };
       setShapes((current) => [...current, shape]);
       setSelectedShapeIds([shape.id]);
