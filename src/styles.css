@@ -129,21 +129,18 @@ button:focus-visible, input:focus-visible, textarea:focus-visible { outline: 3px
 .clipboard-tools button { width: 32px; height: 32px; display: grid; place-items: center; border: 1px solid transparent; border-radius: 8px; background: transparent; color: var(--muted); }
 .clipboard-tools button:hover:not(:disabled) { color: var(--text); background: var(--surface-2); }
 .device-stage { padding: 30px; overflow: auto; display: grid; place-items: start center; flex: 1; }
-.zoom-shell { zoom: var(--canvas-zoom); }
 .web-stage .zoom-shell { width: 100%; }
-@supports not (zoom: 1) {
-  .zoom-shell { transform: scale(var(--canvas-zoom)); transform-origin: top center; }
-}
-.device-frame { width: 354px; min-height: 680px; background: #f8f9f7; border: 8px solid #2f332e; border-radius: 30px; overflow: hidden; box-shadow: var(--shadow), 0 0 0 1px rgba(255,255,255,.15) inset; transition: width .3s ease, border-radius .3s ease; }
+.device-frame { width: 354px; min-height: 680px; display: flex; flex-direction: column; background: #f8f9f7; border: 8px solid #2f332e; border-radius: 30px; overflow: hidden; box-shadow: var(--shadow), 0 0 0 1px rgba(255,255,255,.15) inset; transition: width .3s ease, border-radius .3s ease; }
 .web-stage .device-frame { width: min(960px, 100%); min-height: 0; aspect-ratio: 16 / 9; display: flex; flex-direction: column; border-width: 6px; border-radius: 16px; }
-.device-chrome { height: 27px; padding: 0 15px; display: flex; justify-content: space-between; align-items: center; color: #3b4038; background: #f8f9f7; font-size: 9px; font-weight: 700; }
+.device-chrome { height: 27px; flex: 0 0 27px; padding: 0 15px; display: flex; justify-content: space-between; align-items: center; color: #3b4038; background: #f8f9f7; font-size: 9px; font-weight: 700; }
 .device-chrome > i { width: 48px; height: 12px; background: #2f332e; border-radius: 8px; }
 .device-chrome > div { display: flex; gap: 4px; }
 .device-chrome > div i { width: 7px; height: 7px; background: #c9cec5; border-radius: 50%; }
 .web-stage .device-chrome { justify-content: flex-start; gap: 18px; border-bottom: 1px solid #e5e8e0; }
-.screen { position: relative; min-height: 645px; background: #fafbf8; color: #242721; padding-bottom: 18px; }
+.screen-viewport { position: relative; min-height: 0; flex: 1; overflow: auto; background: #fafbf8; }
+.screen { position: relative; width: 100%; min-height: 645px; background: #fafbf8; color: #242721; padding-bottom: 18px; transform: scale(var(--canvas-zoom)); transform-origin: top left; }
 .blank-screen { padding-bottom: 0; overflow: hidden; background-image: linear-gradient(rgba(215, 220, 210, .38) 1px, transparent 1px), linear-gradient(90deg, rgba(215, 220, 210, .38) 1px, transparent 1px); background-size: 16px 16px; }
-.web-stage .screen { min-height: 0; flex: 1; }
+.web-stage .screen { height: 100%; min-height: 0; }
 .wire-block { position: relative; cursor: pointer; border: 2px solid transparent; transition: border-color .18s ease, background .18s ease; }
 .wire-block:hover { border-color: #cbd3bd; }
 .wire-block.is-active { border-color: #8fba16; background-color: rgba(200, 240, 79, .08); }

@@ -55,7 +55,7 @@ const DRAW_TOOLS = [
   { id: 'text', label: '文字', description: 'クリックして配置', icon: TextT },
 ];
 
-function FreeShape({ shape, active, selectedCount, tool, onMoveStart, onContextMenu, onChange, onMove, onInteractionEnd, onTextChange }) {
+function FreeShape({ shape, active, selectedCount, tool, zoom, onMoveStart, onContextMenu, onChange, onMove, onInteractionEnd, onTextChange }) {
   const interaction = useRef(null);
 
   const beginMove = (event) => {
@@ -79,8 +79,8 @@ function FreeShape({ shape, active, selectedCount, tool, onMoveStart, onContextM
   const interact = (event) => {
     const current = interaction.current;
     if (!current) return;
-    const dx = event.clientX - current.startX;
-    const dy = event.clientY - current.startY;
+    const dx = (event.clientX - current.startX) / zoom;
+    const dy = (event.clientY - current.startY) / zoom;
     if (current.mode === 'move') {
       onMove({ x: Math.max(0, current.x + dx), y: Math.max(0, current.y + dy) });
     } else {
@@ -463,7 +463,7 @@ function App() {
 
   const pointInLayer = (event) => {
     const rect = event.currentTarget.getBoundingClientRect();
-    return { x: event.clientX - rect.left, y: event.clientY - rect.top };
+    return { x: (event.clientX - rect.left) / zoom, y: (event.clientY - rect.top) / zoom };
   };
 
   const startDrawing = (event) => {
@@ -537,7 +537,7 @@ function App() {
 
   const pointInScreen = (event) => {
     const rect = event.currentTarget.getBoundingClientRect();
-    return { x: event.clientX - rect.left, y: event.clientY - rect.top };
+    return { x: (event.clientX - rect.left) / zoom, y: (event.clientY - rect.top) / zoom };
   };
 
   const beginRangeSelection = (event) => {
@@ -696,22 +696,24 @@ function App() {
             <span>{shapes.length} 要素 / {Math.round(zoom * 100)}%</span>
           </div>
           <div ref={stageRef} className={`device-stage ${platform === 'Web' ? 'web-stage' : ''}`}>
-            <div className="zoom-shell" style={{ '--canvas-zoom': zoom }}>
-            <div className="device-frame">
-              <div className="device-chrome">{platform === 'モバイル' ? <><span>9:41</span><i /></> : <><div><i /><i /><i /></div><span>app.local</span></>}</div>
-              <div className="screen blank-screen" onPointerDown={beginRangeSelection} onPointerMove={continueRangeSelection} onPointerUp={finishRangeSelection}>
-                {!shapes.length && <div className="canvas-empty-hint"><Rectangle size={28} /><strong>最初の図形を追加</strong><span>長方形、楕円、文字を使って描き始めます。</span></div>}
-                <div className={`free-layer ${tool !== 'select' ? 'is-drawing' : ''}`} onPointerDown={startDrawing} onPointerMove={continueDrawing} onPointerUp={finishDrawing}>
-                  {shapes.map((shape) => <FreeShape key={shape.id} shape={shape} active={selectedShapeIds.includes(shape.id)} selectedCount={selectedShapeIds.length} tool={tool} onMoveStart={(event) => startShapeMove(shape, event)} onContextMenu={(event) => openLayerMenu(shape, event)} onChange={(patch) => updateShape(shape.id, patch)} onMove={(patch) => moveSelectionWithSnap(shape, patch)} onInteractionEnd={() => { groupMove.current = null; setSnapGuides({ x: null, y: null }); }} onTextChange={(text) => updateShape(shape.id, { text })} />)}
-                  {draftShape && <div className={`draft-rectangle ${draftShape.type === 'ellipse' ? 'is-ellipse' : ''} ${draftShape.type === 'line' ? 'is-line' : ''}`} style={{ left: draftShape.x, top: draftShape.y, width: draftShape.width, height: draftShape.height, transform: draftShape.type === 'line' ? `rotate(${draftShape.rotation}deg)` : undefined }} />}
-                  {snapGuides.x !== null && <div className="snap-guide vertical" style={{ left: snapGuides.x }} />}
-                  {snapGuides.y !== null && <div className="snap-guide horizontal" style={{ top: snapGuides.y }} />}
+            <div className="zoom-shell">
+              <div className="device-frame">
+                <div className="device-chrome">{platform === 'モバイル' ? <><span>9:41</span><i /></> : <><div><i /><i /><i /></div><span>app.local</span></>}</div>
+                <div className="screen-viewport">
+                  <div className="screen blank-screen" style={{ '--canvas-zoom': zoom }} onPointerDown={beginRangeSelection} onPointerMove={continueRangeSelection} onPointerUp={finishRangeSelection}>
+                    {!shapes.length && <div className="canvas-empty-hint"><Rectangle size={28} /><strong>最初の図形を追加</strong><span>長方形、楕円、文字を使って描き始めます。</span></div>}
+                    <div className={`free-layer ${tool !== 'select' ? 'is-drawing' : ''}`} onPointerDown={startDrawing} onPointerMove={continueDrawing} onPointerUp={finishDrawing}>
+                      {shapes.map((shape) => <FreeShape key={shape.id} shape={shape} active={selectedShapeIds.includes(shape.id)} selectedCount={selectedShapeIds.length} tool={tool} zoom={zoom} onMoveStart={(event) => startShapeMove(shape, event)} onContextMenu={(event) => openLayerMenu(shape, event)} onChange={(patch) => updateShape(shape.id, patch)} onMove={(patch) => moveSelectionWithSnap(shape, patch)} onInteractionEnd={() => { groupMove.current = null; setSnapGuides({ x: null, y: null }); }} onTextChange={(text) => updateShape(shape.id, { text })} />)}
+                      {draftShape && <div className={`draft-rectangle ${draftShape.type === 'ellipse' ? 'is-ellipse' : ''} ${draftShape.type === 'line' ? 'is-line' : ''}`} style={{ left: draftShape.x, top: draftShape.y, width: draftShape.width, height: draftShape.height, transform: draftShape.type === 'line' ? `rotate(${draftShape.rotation}deg)` : undefined }} />}
+                      {snapGuides.x !== null && <div className="snap-guide vertical" style={{ left: snapGuides.x }} />}
+                      {snapGuides.y !== null && <div className="snap-guide horizontal" style={{ top: snapGuides.y }} />}
+                    </div>
+                    {selectionBox && <div className="selection-marquee" style={{ left: selectionBox.x, top: selectionBox.y, width: selectionBox.width, height: selectionBox.height }} />}
+                    {selectionBounds && <div className="multi-selection-box" style={{ left: selectionBounds.x, top: selectionBounds.y, width: selectionBounds.width, height: selectionBounds.height }}><span>{selectedShapeIds.length}個</span></div>}
+                    {regions.map((region, index) => <div key={region.id} className={`intent-region ${selectedRegionIds.includes(region.id) ? 'is-active' : ''}`} style={{ left: region.x, top: region.y, width: region.width, height: region.height }}><span onClick={(event) => { event.stopPropagation(); selectRegion(region.id, event); }} onContextMenu={(event) => openRegionMenu(region.id, event)} title="クリックで選択、Shiftクリックで追加選択">{index + 1}</span></div>)}
+                  </div>
                 </div>
-                {selectionBox && <div className="selection-marquee" style={{ left: selectionBox.x, top: selectionBox.y, width: selectionBox.width, height: selectionBox.height }} />}
-                {selectionBounds && <div className="multi-selection-box" style={{ left: selectionBounds.x, top: selectionBounds.y, width: selectionBounds.width, height: selectionBounds.height }}><span>{selectedShapeIds.length}個</span></div>}
-                {regions.map((region, index) => <div key={region.id} className={`intent-region ${selectedRegionIds.includes(region.id) ? 'is-active' : ''}`} style={{ left: region.x, top: region.y, width: region.width, height: region.height }}><span onClick={(event) => { event.stopPropagation(); selectRegion(region.id, event); }} onContextMenu={(event) => openRegionMenu(region.id, event)} title="クリックで選択、Shiftクリックで追加選択">{index + 1}</span></div>)}
               </div>
-            </div>
             </div>
           </div>
         </section>
