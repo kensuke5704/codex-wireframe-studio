@@ -27,16 +27,24 @@ import './styles.css';
 
 const nextId = () => Date.now() + Math.floor(Math.random() * 1000);
 const createPage = (name = 'ページ 1') => ({ id: nextId(), name, platform: 'モバイル', shapes: [], regions: [] });
+const createProject = (name = '新しいワイヤーフレーム') => {
+  const page = createPage();
+  return { id: nextId(), name, pages: [page], activePageId: page.id };
+};
 
-const loadProject = () => {
+const loadWorkspace = () => {
   try {
     const saved = JSON.parse(localStorage.getItem('framekit-project'));
-    if (saved?.pages?.length) return saved;
+    if (saved?.projects?.length) return saved;
+    if (saved?.pages?.length) {
+      const project = { id: nextId(), name: saved.projectName || '新しいワイヤーフレーム', pages: saved.pages, activePageId: saved.activePageId || saved.pages[0].id };
+      return { projects: [project], activeProjectId: project.id };
+    }
   } catch {
     // 壊れた保存データは無視して、新しいプロジェクトを開く。
   }
-  const page = createPage();
-  return { projectName: '新しいワイヤーフレーム', pages: [page], activePageId: page.id };
+  const project = createProject();
+  return { projects: [project], activeProjectId: project.id };
 };
 
 const DRAW_TOOLS = [
@@ -88,7 +96,7 @@ function FreeShape({ shape, active, selectedCount, tool, onMoveStart, onContextM
         top: shape.y,
         width: shape.width,
         height: shape.height,
-        background: shape.type === 'text' ? 'transparent' : shape.fill,
+        background: shape.type === 'text' || shape.type === 'line' || shape.fillEnabled === false ? 'transparent' : shape.fill,
         borderColor: shape.type === 'text' ? 'transparent' : shape.border,
         color: shape.color,
         fontSize: shape.fontSize,
@@ -126,10 +134,9 @@ function FreeShape({ shape, active, selectedCount, tool, onMoveStart, onContextM
 }
 
 function App() {
-  const initialProject = useRef(loadProject()).current;
-  const [projectName, setProjectName] = useState(initialProject.projectName);
-  const [pages, setPages] = useState(initialProject.pages);
-  const [activePageId, setActivePageId] = useState(initialProject.activePageId);
+  const initialWorkspace = useRef(loadWorkspace()).current;
+  const [projects, setProjects] = useState(initialWorkspace.projects);
+  const [activeProjectId, setActiveProjectId] = useState(initialWorkspace.activeProjectId);
   const [rightTab, setRightTab] = useState('edit');
   const [copied, setCopied] = useState(false);
   const [mobilePanel, setMobilePanel] = useState(null);
@@ -139,11 +146,22 @@ function App() {
   const [clipboardShapes, setClipboardShapes] = useState([]);
   const [snapGuides, setSnapGuides] = useState({ x: null, y: null });
   const [selectionBox, setSelectionBox] = useState(null);
-  const [selectedRegionId, setSelectedRegionId] = useState(null);
+  const [selectionArea, setSelectionArea] = useState(null);
+  const [selectedRegionIds, setSelectedRegionIds] = useState([]);
   const [layerMenu, setLayerMenu] = useState(null);
   const drawOrigin = useRef(null);
   const selectionOrigin = useRef(null);
   const groupMove = useRef(null);
+  const activeProject = projects.find((project) => project.id === activeProjectId) || projects[0];
+  const projectName = activeProject.name;
+  const pages = activeProject.pages;
+  const activePageId = activeProject.activePageId;
+  const setProjectName = (name) => setProjects((current) => current.map((project) => project.id === activeProjectId ? { ...project, name } : project));
+  const setPages = (update) => setProjects((current) => current.map((project) => {
+    if (project.id !== activeProjectId) return project;
+    return { ...project, pages: typeof update === 'function' ? update(project.pages) : update };
+  }));
+  const setActivePageId = (pageId) => setProjects((current) => current.map((project) => project.id === activeProjectId ? { ...project, activePageId: pageId } : project));
   const activePage = pages.find((page) => page.id === activePageId) || pages[0];
   const shapes = activePage.shapes;
   const regions = activePage.regions;
@@ -160,7 +178,8 @@ function App() {
   const setPlatform = (value) => updateActivePage('platform', value);
   const selectedShapes = shapes.filter((shape) => selectedShapeIds.includes(shape.id));
   const selectedShape = selectedShapes.length === 1 ? selectedShapes[0] : null;
-  const selectedRegion = regions.find((region) => region.id === selectedRegionId);
+  const selectedRegions = regions.filter((region) => selectedRegionIds.includes(region.id));
+  const selectedRegion = selectedRegions.length === 1 ? selectedRegions[0] : null;
   const selectionBounds = useMemo(() => {
     if (selectedShapes.length < 2) return null;
     const left = Math.min(...selectedShapes.map((shape) => shape.x));
@@ -190,8 +209,8 @@ function App() {
   }, [pages, projectName]);
 
   useEffect(() => {
-    localStorage.setItem('framekit-project', JSON.stringify({ projectName, pages, activePageId }));
-  }, [projectName, pages, activePageId]);
+    localStorage.setItem('framekit-project', JSON.stringify({ projects, activeProjectId }));
+  }, [projects, activeProjectId]);
 
   useEffect(() => {
     const handleKeyboard = (event) => {
@@ -236,8 +255,32 @@ function App() {
 
   const openLayerMenu = (shape, event) => {
     setSelectedShapeIds([shape.id]);
-    setSelectedRegionId(null);
-    setLayerMenu({ shapeId: shape.id, x: event.clientX, y: event.clientY });
+    setSelectedRegionIds([]);
+    setLayerMenu({ kind: 'shape', shapeId: shape.id, x: event.clientX, y: event.clientY });
+  };
+
+  const selectRegion = (regionId, event) => {
+    const additive = event.shiftKey || event.metaKey || event.ctrlKey;
+    setSelectedRegionIds((current) => additive
+      ? current.includes(regionId) ? current.filter((id) => id !== regionId) : [...current, regionId]
+      : [regionId]);
+    setSelectedShapeIds([]);
+    setRightTab('edit');
+  };
+
+  const openRegionMenu = (regionId, event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    const ids = selectedRegionIds.includes(regionId) ? selectedRegionIds : [regionId];
+    setSelectedRegionIds(ids);
+    setSelectedShapeIds([]);
+    setLayerMenu({ kind: 'region', regionIds: ids, x: event.clientX, y: event.clientY });
+  };
+
+  const deleteSelectedRegions = (ids = selectedRegionIds) => {
+    setRegions((current) => current.filter((region) => !ids.includes(region.id)));
+    setSelectedRegionIds([]);
+    setLayerMenu(null);
   };
 
   const moveShapeLayer = (shapeId, direction) => {
@@ -262,7 +305,8 @@ function App() {
       ids = selectedShapeIds.includes(shape.id) ? selectedShapeIds : groupIds;
     }
     setSelectedShapeIds(ids);
-    setSelectedRegionId(null);
+    setSelectionArea(null);
+    setSelectedRegionIds([]);
     setRightTab('edit');
     groupMove.current = {
       sourceId: shape.id,
@@ -364,7 +408,8 @@ function App() {
     setTool(nextTool);
     if (nextTool !== 'select') {
       setSelectedShapeIds([]);
-      setSelectedRegionId(null);
+      setSelectedRegionIds([]);
+      setSelectionArea(null);
     }
     setMobilePanel(null);
   };
@@ -383,7 +428,7 @@ function App() {
     if (tool === 'text') {
       const shape = {
         id: nextId(), type: 'text', x: point.x, y: point.y, width: 150, height: 34,
-        text: 'テキストを入力', color: '#2d312b', border: '#8fba16', fontSize: 16,
+        text: 'テキストを入力', color: '#20221e', border: '#20221e', fontSize: 16,
       };
       setShapes((current) => [...current, shape]);
       setSelectedShapeIds([shape.id]);
@@ -403,7 +448,9 @@ function App() {
     if (tool === 'line') {
       const dx = point.x - origin.x;
       const dy = point.y - origin.y;
-      setDraftShape({ type: 'line', x: origin.x, y: origin.y - 7, width: Math.max(8, Math.hypot(dx, dy)), height: 14, rotation: Math.atan2(dy, dx) * 180 / Math.PI });
+      const rawRotation = Math.atan2(dy, dx) * 180 / Math.PI;
+      const rotation = event.shiftKey ? Math.round(rawRotation / 45) * 45 : rawRotation;
+      setDraftShape({ type: 'line', x: origin.x, y: origin.y - 7, width: Math.max(8, Math.hypot(dx, dy)), height: 14, rotation });
     } else {
       const dx = point.x - origin.x;
       const dy = point.y - origin.y;
@@ -425,7 +472,7 @@ function App() {
       return;
     }
     const shape = {
-      id: nextId(), ...draftShape, fill: '#dff58f', border: '#8fba16', color: '#2d312b', fontSize: 16, strokeWidth: 2,
+      id: nextId(), ...draftShape, fill: '#ffffff', fillEnabled: false, border: '#20221e', color: '#20221e', fontSize: 16, strokeWidth: 2,
     };
     setShapes((current) => [...current, shape]);
     setSelectedShapeIds([shape.id]);
@@ -453,7 +500,7 @@ function App() {
     event.currentTarget.setPointerCapture(event.pointerId);
     selectionOrigin.current = { ...point, additive: event.shiftKey || event.metaKey || event.ctrlKey };
     setSelectionBox({ x: point.x, y: point.y, width: 0, height: 0 });
-    setSelectedRegionId(null);
+    setSelectedRegionIds([]);
     if (!selectionOrigin.current.additive) setSelectedShapeIds([]);
   };
 
@@ -475,6 +522,7 @@ function App() {
     selectionOrigin.current = null;
     if (selectionBox.width < 4 && selectionBox.height < 4) {
       setSelectedShapeIds([]);
+      setSelectionArea(null);
       setSelectionBox(null);
       return;
     }
@@ -485,19 +533,46 @@ function App() {
       shape.y + shape.height > selectionBox.y
     )).map((shape) => shape.id);
     setSelectedShapeIds((current) => origin.additive ? [...new Set([...current, ...included])] : included);
-    const region = { id: nextId(), ...selectionBox, note: '' };
-    setRegions((current) => [...current, region]);
-    setSelectedRegionId(region.id);
+    setSelectionArea(selectionBox);
+    setSelectedRegionIds([]);
     setRightTab('edit');
     setSelectionBox(null);
+  };
+
+  const addDescriptionToSelection = () => {
+    if (!selectedShapes.length) return;
+    const fallback = selectedShapes.length === 1
+      ? { x: selectedShapes[0].x, y: selectedShapes[0].y, width: selectedShapes[0].width, height: selectedShapes[0].height }
+      : selectionBounds;
+    const region = { id: nextId(), ...(selectionArea || fallback), note: '' };
+    setRegions((current) => [...current, region]);
+    setSelectedRegionIds([region.id]);
+    setSelectionArea(null);
+    setRightTab('edit');
   };
 
   const switchPage = (pageId) => {
     setActivePageId(pageId);
     setSelectedShapeIds([]);
-    setSelectedRegionId(null);
+    setSelectedRegionIds([]);
     setSelectionBox(null);
+    setSelectionArea(null);
     setTool('select');
+  };
+
+  const switchProject = (projectId) => {
+    setActiveProjectId(projectId);
+    setSelectedShapeIds([]);
+    setSelectedRegionIds([]);
+    setSelectionBox(null);
+    setSelectionArea(null);
+    setTool('select');
+  };
+
+  const addProject = () => {
+    const project = createProject(`プロジェクト ${projects.length + 1}`);
+    setProjects((current) => [...current, project]);
+    switchProject(project.id);
   };
 
   const addPage = () => {
@@ -531,6 +606,10 @@ function App() {
 
       <main className="workspace">
         <aside className={`left-panel ${mobilePanel === 'blocks' ? 'mobile-open' : ''}`}>
+          <div className="project-manager">
+            <label htmlFor="project-switcher">プロジェクト</label>
+            <div><select id="project-switcher" value={activeProjectId} onChange={(event) => switchProject(Number(event.target.value))}>{projects.map((project) => <option key={project.id} value={project.id}>{project.name}</option>)}</select><button onClick={addProject} aria-label="新しいプロジェクトを追加"><Plus size={15} /></button></div>
+          </div>
           <div className="page-manager">
             <div className="page-manager-heading"><div><strong>ページ</strong><small>{pages.length}ページ</small></div><button onClick={addPage} aria-label="新しいページを追加"><Plus size={15} /> 新規</button></div>
             <div className="page-list">
@@ -556,7 +635,7 @@ function App() {
             <button onClick={copySelectedShape} disabled={!selectedShapes.length}><Copy size={16} /> コピー <kbd>⌘C</kbd></button>
             <button onClick={pasteShape} disabled={!clipboardShapes.length}><ClipboardText size={16} /> ペースト <kbd>⌘V</kbd></button>
           </div>
-          {regions.length > 0 && <div className="region-list"><strong>設計意図</strong>{regions.map((region, index) => <button key={region.id} className={selectedRegionId === region.id ? 'active' : ''} onClick={() => { setSelectedRegionId(region.id); setSelectedShapeIds([]); setRightTab('edit'); }}><span>{index + 1}</span><div>{region.note || '説明未入力'}</div></button>)}</div>}
+          {regions.length > 0 && <div className="region-list"><strong>設計意図 <small>Shiftで複数選択</small></strong>{regions.map((region, index) => <button key={region.id} className={selectedRegionIds.includes(region.id) ? 'active' : ''} onClick={(event) => selectRegion(region.id, event)} onContextMenu={(event) => openRegionMenu(region.id, event)}><span>{index + 1}</span><div>{region.note || '説明未入力'}</div></button>)}</div>}
           <div className="tip"><Sparkle size={16} weight="fill" /><p><strong>描き始める</strong>長方形と楕円はドラッグ、文字は配置したい場所をクリックします。</p></div>
         </aside>
 
@@ -582,7 +661,7 @@ function App() {
                 </div>
                 {selectionBox && <div className="selection-marquee" style={{ left: selectionBox.x, top: selectionBox.y, width: selectionBox.width, height: selectionBox.height }} />}
                 {selectionBounds && <div className="multi-selection-box" style={{ left: selectionBounds.x, top: selectionBounds.y, width: selectionBounds.width, height: selectionBounds.height }}><span>{selectedShapeIds.length}個</span></div>}
-                {regions.map((region, index) => <div key={region.id} className={`intent-region ${selectedRegionId === region.id ? 'is-active' : ''}`} style={{ left: region.x, top: region.y, width: region.width, height: region.height }}><span>{index + 1}</span></div>)}
+                {regions.map((region, index) => <div key={region.id} className={`intent-region ${selectedRegionIds.includes(region.id) ? 'is-active' : ''}`} style={{ left: region.x, top: region.y, width: region.width, height: region.height }}><span onClick={(event) => { event.stopPropagation(); selectRegion(region.id, event); }} onContextMenu={(event) => openRegionMenu(region.id, event)} title="クリックで選択、Shiftクリックで追加選択">{index + 1}</span></div>)}
               </div>
             </div>
           </div>
@@ -592,10 +671,13 @@ function App() {
           <div className="right-tabs"><button className={rightTab === 'edit' ? 'active' : ''} onClick={() => setRightTab('edit')}>編集</button><button className={rightTab === 'export' ? 'active' : ''} onClick={() => setRightTab('export')}>Codex用</button><button className="mobile-close" onClick={() => setMobilePanel(null)}><X size={18} /></button></div>
           {rightTab === 'edit' ? (
             <div className="settings-body">
-              <div className="settings-intro"><span className="selected-icon">{selectedShape?.type === 'text' ? <TextAa size={18} /> : selectedShape?.type === 'ellipse' ? <Circle size={18} /> : selectedShape?.type === 'line' ? <LineSegment size={18} /> : <Rectangle size={18} />}</span><div><small>選択中</small><strong>{selectedRegion ? '設計意図の範囲' : selectedShapes.length > 1 ? `${selectedShapes.length}個の要素` : selectedShape ? (selectedShape.type === 'text' ? selectedShape.text : selectedShape.type === 'ellipse' ? '楕円' : selectedShape.type === 'line' ? '直線' : '長方形') : '未選択'}</strong></div></div>
+              <div className="settings-intro"><span className="selected-icon">{selectedShape?.type === 'text' ? <TextAa size={18} /> : selectedShape?.type === 'ellipse' ? <Circle size={18} /> : selectedShape?.type === 'line' ? <LineSegment size={18} /> : <Rectangle size={18} />}</span><div><small>選択中</small><strong>{selectedRegions.length > 1 ? `${selectedRegions.length}個の設計意図` : selectedRegion ? '設計意図の範囲' : selectedShapes.length > 1 ? `${selectedShapes.length}個の要素` : selectedShape ? (selectedShape.type === 'text' ? selectedShape.text : selectedShape.type === 'ellipse' ? '楕円' : selectedShape.type === 'line' ? '直線' : '長方形') : '未選択'}</strong></div></div>
               <label>プロジェクト名<input value={projectName} onChange={(event) => setProjectName(event.target.value)} /></label>
               <label>ページ名<input value={activePage.name} onChange={(event) => renameActivePage(event.target.value)} /></label>
-              {selectedRegion ? <>
+              {selectedRegions.length > 1 ? <>
+                <div className="empty-settings compact"><p>Shiftクリックで選択した設計意図をまとめて削除できます。</p></div>
+                <button className="danger-button" onClick={() => deleteSelectedRegions()}><Trash size={16} /> 選択した設計意図を削除</button>
+              </> : selectedRegion ? <>
                 <label>この範囲の設計意図<textarea rows="5" value={selectedRegion.note} onChange={(event) => updateRegion(selectedRegion.id, { note: event.target.value })} placeholder="例: 主要アクションをまとめ、片手で操作しやすくする" /></label>
                 <div className="coordinate-grid">
                   <label>X<input type="number" value={Math.round(selectedRegion.x)} onChange={(event) => updateRegion(selectedRegion.id, { x: Number(event.target.value) })} /></label>
@@ -603,8 +685,9 @@ function App() {
                   <label>幅<input type="number" value={Math.round(selectedRegion.width)} onChange={(event) => updateRegion(selectedRegion.id, { width: Number(event.target.value) })} /></label>
                   <label>高さ<input type="number" value={Math.round(selectedRegion.height)} onChange={(event) => updateRegion(selectedRegion.id, { height: Number(event.target.value) })} /></label>
                 </div>
-                <button className="danger-button" onClick={() => { setRegions((current) => current.filter((region) => region.id !== selectedRegion.id)); setSelectedRegionId(null); }}><Trash size={16} /> この設計意図を削除</button>
+                <button className="danger-button" onClick={() => deleteSelectedRegions([selectedRegion.id])}><Trash size={16} /> この設計意図を削除</button>
               </> : selectedShapes.length > 1 ? <>
+                <button className="description-button" onClick={addDescriptionToSelection}><Plus size={16} /> この選択に説明を追加</button>
                 <div className="multi-edit-block">
                   <span>左右の整列</span>
                   <div className="align-actions"><button onClick={() => alignSelectedShapes('left')}>左</button><button onClick={() => alignSelectedShapes('center')}>中央</button><button onClick={() => alignSelectedShapes('right')}>右</button></div>
@@ -612,6 +695,7 @@ function App() {
                 <div className="group-actions"><button onClick={groupSelectedShapes}>グループ化</button><button onClick={ungroupSelectedShapes}>グループ解除</button></div>
                 <button className="danger-button" onClick={() => { setShapes((current) => current.filter((shape) => !selectedShapeIds.includes(shape.id))); setSelectedShapeIds([]); }}><Trash size={16} /> 選択した要素を削除</button>
               </> : selectedShape ? <>
+                <button className="description-button" onClick={addDescriptionToSelection}><Plus size={16} /> この選択に説明を追加</button>
                 {selectedShape.type === 'text' && <label>文字<input value={selectedShape.text} onChange={(event) => updateShape(selectedShape.id, { text: event.target.value })} /></label>}
                 <div className="coordinate-grid">
                   <label>X<input type="number" value={Math.round(selectedShape.x)} onChange={(event) => updateShape(selectedShape.id, { x: Number(event.target.value) })} /></label>
@@ -619,7 +703,7 @@ function App() {
                   <label>幅<input type="number" min="24" value={Math.round(selectedShape.width)} onChange={(event) => updateShape(selectedShape.id, { width: Number(event.target.value) })} /></label>
                   <label>高さ<input type="number" min="20" value={Math.round(selectedShape.height)} onChange={(event) => updateShape(selectedShape.id, { height: Number(event.target.value) })} /></label>
                 </div>
-                {selectedShape.type === 'text' ? <div className="color-grid"><label>文字色<input type="color" value={selectedShape.color} onChange={(event) => updateShape(selectedShape.id, { color: event.target.value })} /></label><label>文字サイズ<input type="number" min="8" max="72" value={selectedShape.fontSize} onChange={(event) => updateShape(selectedShape.id, { fontSize: Number(event.target.value) })} /></label></div> : selectedShape.type === 'line' ? <div className="color-grid"><label>線色<input type="color" value={selectedShape.border} onChange={(event) => updateShape(selectedShape.id, { border: event.target.value })} /></label><label>太さ<input type="number" min="1" max="12" value={selectedShape.strokeWidth || 2} onChange={(event) => updateShape(selectedShape.id, { strokeWidth: Number(event.target.value) })} /></label></div> : <div className="color-grid"><label>塗り<input type="color" value={selectedShape.fill} onChange={(event) => updateShape(selectedShape.id, { fill: event.target.value })} /></label><label>線<input type="color" value={selectedShape.border} onChange={(event) => updateShape(selectedShape.id, { border: event.target.value })} /></label></div>}
+                {selectedShape.type === 'text' ? <div className="color-grid"><label>文字色<input type="color" value={selectedShape.color} onChange={(event) => updateShape(selectedShape.id, { color: event.target.value })} /></label><label>文字サイズ<input type="number" min="8" max="72" value={selectedShape.fontSize} onChange={(event) => updateShape(selectedShape.id, { fontSize: Number(event.target.value) })} /></label></div> : selectedShape.type === 'line' ? <div className="color-grid"><label>線色<input type="color" value={selectedShape.border} onChange={(event) => updateShape(selectedShape.id, { border: event.target.value })} /></label><label>太さ<input type="number" min="1" max="12" value={selectedShape.strokeWidth || 2} onChange={(event) => updateShape(selectedShape.id, { strokeWidth: Number(event.target.value) })} /></label></div> : <><label className="fill-toggle"><input type="checkbox" checked={selectedShape.fillEnabled !== false} onChange={(event) => updateShape(selectedShape.id, { fillEnabled: event.target.checked })} /> 塗りつぶし</label><div className="color-grid"><label>塗り色<input type="color" disabled={selectedShape.fillEnabled === false} value={selectedShape.fill || '#ffffff'} onChange={(event) => updateShape(selectedShape.id, { fill: event.target.value, fillEnabled: true })} /></label><label>線<input type="color" value={selectedShape.border} onChange={(event) => updateShape(selectedShape.id, { border: event.target.value })} /></label></div></>}
                 <button className="danger-button" onClick={() => { setShapes((current) => current.filter((shape) => shape.id !== selectedShape.id)); setSelectedShapeIds([]); }}><Trash size={16} /> この要素を削除</button>
               </> : <div className="empty-settings"><SidebarSimple size={26} /><p>キャンバスへ図形を描き、選択すると詳細を編集できます。</p></div>}
             </div>
@@ -642,8 +726,7 @@ function App() {
       </main>
 
       {layerMenu && <div className="layer-menu" style={{ left: layerMenu.x, top: layerMenu.y }} role="menu">
-        <button role="menuitem" onClick={() => moveShapeLayer(layerMenu.shapeId, 'front')}>最前面へ</button>
-        <button role="menuitem" onClick={() => moveShapeLayer(layerMenu.shapeId, 'back')}>最背面へ</button>
+        {layerMenu.kind === 'region' ? <button className="delete-item" role="menuitem" onClick={() => deleteSelectedRegions(layerMenu.regionIds)}>{layerMenu.regionIds.length > 1 ? '選択した設計意図を削除' : 'この設計意図を削除'}</button> : <><button role="menuitem" onClick={() => moveShapeLayer(layerMenu.shapeId, 'front')}>最前面へ</button><button role="menuitem" onClick={() => moveShapeLayer(layerMenu.shapeId, 'back')}>最背面へ</button></>}
       </div>}
 
       <nav className="mobile-dock" aria-label="編集パネル">
