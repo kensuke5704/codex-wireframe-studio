@@ -130,6 +130,7 @@ button:focus-visible, input:focus-visible, textarea:focus-visible { outline: 3px
 .clipboard-tools button:hover:not(:disabled) { color: var(--text); background: var(--surface-2); }
 .device-stage { padding: 30px; overflow: auto; display: grid; place-items: start center; flex: 1; }
 .zoom-shell { zoom: var(--canvas-zoom); }
+.web-stage .zoom-shell { width: 100%; }
 @supports not (zoom: 1) {
   .zoom-shell { transform: scale(var(--canvas-zoom)); transform-origin: top center; }
 }
