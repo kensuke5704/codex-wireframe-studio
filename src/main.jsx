@@ -243,6 +243,23 @@ function App() {
   }, [zoom]);
 
   useEffect(() => {
+    if (!layerMenu) return undefined;
+    const dismissLayerMenu = (event) => {
+      if (event.target instanceof Element && event.target.closest('.layer-menu')) return;
+      setLayerMenu(null);
+    };
+    const dismissWithKeyboard = (event) => {
+      if (event.key === 'Escape') setLayerMenu(null);
+    };
+    document.addEventListener('pointerdown', dismissLayerMenu);
+    document.addEventListener('keydown', dismissWithKeyboard);
+    return () => {
+      document.removeEventListener('pointerdown', dismissLayerMenu);
+      document.removeEventListener('keydown', dismissWithKeyboard);
+    };
+  }, [layerMenu]);
+
+  useEffect(() => {
     const handleKeyboard = (event) => {
       const tag = document.activeElement?.tagName;
       if (tag === 'INPUT' || tag === 'TEXTAREA' || document.activeElement?.isContentEditable) return;
@@ -502,7 +519,7 @@ function App() {
       return;
     }
     const shape = {
-      id: nextId(), ...draftShape, fill: '#ffffff', fillEnabled: false, border: '#20221e', color: '#20221e', fontSize: 16, strokeWidth: 2,
+      id: nextId(), ...draftShape, fill: '#ffffff', fillEnabled: false, border: '#20221e', color: '#20221e', fontSize: 16, strokeWidth: 1,
     };
     setShapes((current) => [...current, shape]);
     setSelectedShapeIds([shape.id]);
