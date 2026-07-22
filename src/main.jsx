@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import {
   ArrowCounterClockwise,
@@ -174,10 +174,12 @@ function App() {
   const drawOrigin = useRef(null);
   const selectionOrigin = useRef(null);
   const groupMove = useRef(null);
+  const regionMove = useRef(null);
   const panInteraction = useRef(null);
   const stageRef = useRef(null);
   const screenViewportRef = useRef(null);
   const gestureZoomStart = useRef(null);
+  const zoomFocusRef = useRef(null);
   const activeProject = projects.find((project) => project.id === activeProjectId) || projects[0];
   const projectName = activeProject.name;
   const pages = activeProject.pages;
@@ -312,10 +314,7 @@ function App() {
       return { x, y };
     };
     const scrollToFocus = (viewport, focus, logical, nextZoom) => {
-      window.requestAnimationFrame(() => {
-        viewport.scrollLeft = logical.x * nextZoom - focus.x;
-        viewport.scrollTop = logical.y * nextZoom - focus.y;
-      });
+      zoomFocusRef.current = { viewport, focus, logical, nextZoom };
     };
     const handleWheel = (event) => {
       if (!event.ctrlKey) return;
@@ -364,6 +363,14 @@ function App() {
       stage.removeEventListener('gesturestart', handleGestureStart);
       stage.removeEventListener('gesturechange', handleGestureChange);
     };
+  }, [zoom]);
+
+  useLayoutEffect(() => {
+    const pending = zoomFocusRef.current;
+    if (!pending || pending.nextZoom !== zoom) return;
+    pending.viewport.scrollLeft = pending.logical.x * zoom - pending.focus.x;
+    pending.viewport.scrollTop = pending.logical.y * zoom - pending.focus.y;
+    zoomFocusRef.current = null;
   }, [zoom]);
 
   useEffect(() => {
@@ -418,6 +425,34 @@ function App() {
         setSelectedShapeIds(pasted.map((shape) => shape.id));
         return;
       }
+      const arrowDelta = {
+        ArrowLeft: { x: -1, y: 0 },
+        ArrowRight: { x: 1, y: 0 },
+        ArrowUp: { x: 0, y: -1 },
+        ArrowDown: { x: 0, y: 1 },
+      }[event.key];
+      if (!modifier && arrowDelta && (selectedShapeIds.length || selectedRegionIds.length)) {
+        event.preventDefault();
+        const canvasWidth = screenViewportRef.current?.clientWidth || 0;
+        const canvasHeight = screenViewportRef.current?.clientHeight || 0;
+        const targets = selectedShapeIds.length ? selectedShapes : selectedRegions;
+        let dx = arrowDelta.x;
+        let dy = arrowDelta.y;
+        const minX = Math.min(...targets.map((item) => item.x));
+        const minY = Math.min(...targets.map((item) => item.y));
+        const maxX = Math.max(...targets.map((item) => item.x + item.width));
+        const maxY = Math.max(...targets.map((item) => item.y + item.height));
+        if (dx < 0) dx = Math.max(dx, -minX);
+        if (dx > 0) dx = Math.min(dx, canvasWidth - maxX);
+        if (dy < 0) dy = Math.max(dy, -minY);
+        if (dy > 0) dy = Math.min(dy, canvasHeight - maxY);
+        if (selectedShapeIds.length) {
+          setShapes((current) => current.map((shape) => selectedShapeIds.includes(shape.id) ? { ...shape, x: shape.x + dx, y: shape.y + dy } : shape));
+        } else {
+          setRegions((current) => current.map((region) => selectedRegionIds.includes(region.id) ? { ...region, x: region.x + dx, y: region.y + dy } : region));
+        }
+        return;
+      }
       if (!selectedShapeIds.length) return;
       if (event.key === 'Delete' || event.key === 'Backspace') {
         setShapes((current) => current.filter((shape) => !selectedShapeIds.includes(shape.id)));
@@ -426,7 +461,7 @@ function App() {
     };
     window.addEventListener('keydown', handleKeyboard);
     return () => window.removeEventListener('keydown', handleKeyboard);
-  }, [selectedShapeIds, selectedShapes, clipboardShapes]);
+  }, [selectedShapeIds, selectedRegionIds, selectedShapes, selectedRegions, clipboardShapes]);
 
   const updateShape = (id, patch) => {
     setShapes((current) => current.map((shape) => shape.id === id ? { ...shape, ...patch } : shape));
@@ -449,6 +484,51 @@ function App() {
       : [regionId]);
     setSelectedShapeIds([]);
     setRightTab('edit');
+  };
+
+  const beginRegionMove = (region, event) => {
+    if (tool !== 'select' || event.button !== 0) return;
+    event.preventDefault();
+    event.stopPropagation();
+    event.target.focus?.();
+    const additive = event.shiftKey || event.metaKey || event.ctrlKey;
+    const ids = additive
+      ? selectedRegionIds.includes(region.id) ? selectedRegionIds : [...selectedRegionIds, region.id]
+      : selectedRegionIds.includes(region.id) ? selectedRegionIds : [region.id];
+    setSelectedRegionIds(ids);
+    setSelectedShapeIds([]);
+    setRightTab('edit');
+    event.target.setPointerCapture(event.pointerId);
+    regionMove.current = {
+      startX: event.clientX,
+      startY: event.clientY,
+      ids,
+      origins: new Map(regions.filter((item) => ids.includes(item.id)).map((item) => [item.id, { x: item.x, y: item.y }])),
+    };
+  };
+
+  const continueRegionMove = (event) => {
+    const drag = regionMove.current;
+    if (!drag) return;
+    const moving = regions.filter((region) => drag.ids.includes(region.id));
+    let dx = (event.clientX - drag.startX) / zoom;
+    let dy = (event.clientY - drag.startY) / zoom;
+    const canvasWidth = screenViewportRef.current?.clientWidth || 0;
+    const canvasHeight = screenViewportRef.current?.clientHeight || 0;
+    const minX = Math.min(...moving.map((region) => drag.origins.get(region.id).x));
+    const minY = Math.min(...moving.map((region) => drag.origins.get(region.id).y));
+    const maxX = Math.max(...moving.map((region) => drag.origins.get(region.id).x + region.width));
+    const maxY = Math.max(...moving.map((region) => drag.origins.get(region.id).y + region.height));
+    dx = Math.min(Math.max(dx, -minX), canvasWidth - maxX);
+    dy = Math.min(Math.max(dy, -minY), canvasHeight - maxY);
+    setRegions((current) => current.map((region) => {
+      const origin = drag.origins.get(region.id);
+      return origin ? { ...region, x: origin.x + dx, y: origin.y + dy } : region;
+    }));
+  };
+
+  const finishRegionMove = () => {
+    regionMove.current = null;
   };
 
   const openRegionMenu = (regionId, event) => {
@@ -873,7 +953,7 @@ function App() {
                     </div>
                     {selectionBox && <div className="selection-marquee" style={{ left: selectionBox.x, top: selectionBox.y, width: selectionBox.width, height: selectionBox.height }} />}
                     {selectionBounds && <div className="multi-selection-box" style={{ left: selectionBounds.x, top: selectionBounds.y, width: selectionBounds.width, height: selectionBounds.height }}><span>{selectedShapeIds.length}個</span></div>}
-                    {regions.map((region, index) => <div key={region.id} className={`intent-region ${selectedRegionIds.includes(region.id) ? 'is-active' : ''}`} style={{ left: region.x, top: region.y, width: region.width, height: region.height }}><span onClick={(event) => { event.stopPropagation(); selectRegion(region.id, event); }} onContextMenu={(event) => openRegionMenu(region.id, event)} title="クリックで選択、Shiftクリックで追加選択">{index + 1}</span></div>)}
+                    {regions.map((region, index) => <div key={region.id} className={`intent-region ${selectedRegionIds.includes(region.id) ? 'is-active' : ''}`} style={{ left: region.x, top: region.y, width: region.width, height: region.height }} onPointerDown={(event) => beginRegionMove(region, event)} onPointerMove={continueRegionMove} onPointerUp={finishRegionMove} onPointerCancel={finishRegionMove} onContextMenu={(event) => openRegionMenu(region.id, event)}><span tabIndex={0} onClick={(event) => event.stopPropagation()} title="ドラッグで移動、Shiftクリックで追加選択">{index + 1}</span></div>)}
                   </div>
                 </div>
               </div>
