@@ -12,6 +12,7 @@ import {
   DownloadSimple,
   Export,
   GearSix,
+  Hand,
   Layout,
   LineSegment,
   Plus,
@@ -53,6 +54,7 @@ const DRAW_TOOLS = [
   { id: 'ellipse', label: '楕円', description: 'ドラッグして描画', icon: Circle },
   { id: 'line', label: '直線', description: '始点から終点へ描画', icon: LineSegment },
   { id: 'text', label: '文字', description: 'クリックして配置', icon: TextT },
+  { id: 'pan', label: '画面移動', description: '拡大時にドラッグ', icon: Hand },
 ];
 
 function FreeShape({ shape, active, selectedCount, tool, zoom, onMoveStart, onContextMenu, onChange, onMove, onInteractionEnd, onTextChange }) {
@@ -153,7 +155,9 @@ function App() {
   const drawOrigin = useRef(null);
   const selectionOrigin = useRef(null);
   const groupMove = useRef(null);
+  const panInteraction = useRef(null);
   const stageRef = useRef(null);
+  const screenViewportRef = useRef(null);
   const gestureZoomStart = useRef(1);
   const activeProject = projects.find((project) => project.id === activeProjectId) || projects[0];
   const projectName = activeProject.name;
@@ -218,7 +222,7 @@ function App() {
   useEffect(() => {
     const stage = stageRef.current;
     if (!stage) return undefined;
-    const clampZoom = (value) => Math.min(2, Math.max(.5, value));
+    const clampZoom = (value) => Math.min(2, Math.max(1, value));
     const handleWheel = (event) => {
       if (!event.ctrlKey) return;
       event.preventDefault();
@@ -241,6 +245,12 @@ function App() {
       stage.removeEventListener('gesturechange', handleGestureChange);
     };
   }, [zoom]);
+
+  useEffect(() => {
+    if (zoom > 1) return;
+    if (tool === 'pan') setTool('select');
+    screenViewportRef.current?.scrollTo({ left: 0, top: 0 });
+  }, [zoom, tool]);
 
   useEffect(() => {
     if (!layerMenu) return undefined;
@@ -452,6 +462,7 @@ function App() {
   };
 
   const selectTool = (nextTool) => {
+    if (nextTool === 'pan' && zoom <= 1) return;
     setTool(nextTool);
     if (nextTool !== 'select') {
       setSelectedShapeIds([]);
@@ -466,7 +477,33 @@ function App() {
     return { x: (event.clientX - rect.left) / zoom, y: (event.clientY - rect.top) / zoom };
   };
 
+  const beginPan = (event) => {
+    if (tool !== 'pan' || zoom <= 1 || event.button !== 0) return;
+    event.preventDefault();
+    event.currentTarget.setPointerCapture(event.pointerId);
+    panInteraction.current = {
+      startX: event.clientX,
+      startY: event.clientY,
+      scrollLeft: event.currentTarget.scrollLeft,
+      scrollTop: event.currentTarget.scrollTop,
+    };
+    event.currentTarget.classList.add('is-dragging');
+  };
+
+  const continuePan = (event) => {
+    const pan = panInteraction.current;
+    if (!pan) return;
+    event.currentTarget.scrollLeft = pan.scrollLeft - (event.clientX - pan.startX);
+    event.currentTarget.scrollTop = pan.scrollTop - (event.clientY - pan.startY);
+  };
+
+  const finishPan = (event) => {
+    panInteraction.current = null;
+    event.currentTarget.classList.remove('is-dragging');
+  };
+
   const startDrawing = (event) => {
+    if (tool === 'pan') return;
     if (tool === 'select') {
       setSelectedShapeIds([]);
       return;
@@ -671,7 +708,7 @@ function App() {
             {DRAW_TOOLS.map((item) => {
               const Icon = item.icon;
               return (
-                <button key={item.id} className={tool === item.id ? 'active' : ''} onClick={() => selectTool(item.id)}>
+                <button key={item.id} className={tool === item.id ? 'active' : ''} onClick={() => selectTool(item.id)} disabled={item.id === 'pan' && zoom <= 1}>
                   <span><Icon size={19} /></span>
                   <div><strong>{item.label}</strong><small>{item.description}</small></div>
                 </button>
@@ -690,7 +727,7 @@ function App() {
           <div className="canvas-toolbar">
             <div className="toolbar-left">
               <div className="device-switch"><button className={platform === 'モバイル' ? 'active' : ''} onClick={() => setPlatform('モバイル')}><DeviceMobile size={16} /> モバイル</button><button className={platform === 'Web' ? 'active' : ''} onClick={() => setPlatform('Web')}><Browser size={16} /> Web</button></div>
-              <div className="editor-tools">{DRAW_TOOLS.map((item) => { const Icon = item.icon; return <button key={item.id} className={tool === item.id ? 'active' : ''} onClick={() => selectTool(item.id)} title={item.label} aria-label={item.label}><Icon size={16} /></button>; })}</div>
+              <div className="editor-tools">{DRAW_TOOLS.map((item) => { const Icon = item.icon; return <button key={item.id} className={tool === item.id ? 'active' : ''} onClick={() => selectTool(item.id)} title={item.id === 'pan' && zoom <= 1 ? '100%より拡大すると使用できます' : item.label} aria-label={item.label} disabled={item.id === 'pan' && zoom <= 1}><Icon size={16} /></button>; })}</div>
               <div className="clipboard-tools"><button onClick={copySelectedShape} disabled={!selectedShapes.length} aria-label="図形をコピー"><Copy size={16} /></button><button onClick={pasteShape} disabled={!clipboardShapes.length} aria-label="図形をペースト"><ClipboardText size={16} /></button></div>
             </div>
             <span>{shapes.length} 要素 / {Math.round(zoom * 100)}%</span>
@@ -699,10 +736,10 @@ function App() {
             <div className="zoom-shell">
               <div className="device-frame">
                 <div className="device-chrome">{platform === 'モバイル' ? <><span>9:41</span><i /></> : <><div><i /><i /><i /></div><span>app.local</span></>}</div>
-                <div className="screen-viewport">
+                <div ref={screenViewportRef} className={`screen-viewport ${tool === 'pan' && zoom > 1 ? 'is-pannable' : ''}`} onPointerDown={beginPan} onPointerMove={continuePan} onPointerUp={finishPan} onPointerCancel={finishPan}>
                   <div className="screen blank-screen" style={{ '--canvas-zoom': zoom }} onPointerDown={beginRangeSelection} onPointerMove={continueRangeSelection} onPointerUp={finishRangeSelection}>
                     {!shapes.length && <div className="canvas-empty-hint"><Rectangle size={28} /><strong>最初の図形を追加</strong><span>長方形、楕円、文字を使って描き始めます。</span></div>}
-                    <div className={`free-layer ${tool !== 'select' ? 'is-drawing' : ''}`} onPointerDown={startDrawing} onPointerMove={continueDrawing} onPointerUp={finishDrawing}>
+                    <div className={`free-layer ${['rectangle', 'ellipse', 'line', 'text'].includes(tool) ? 'is-drawing' : ''}`} onPointerDown={startDrawing} onPointerMove={continueDrawing} onPointerUp={finishDrawing}>
                       {shapes.map((shape) => <FreeShape key={shape.id} shape={shape} active={selectedShapeIds.includes(shape.id)} selectedCount={selectedShapeIds.length} tool={tool} zoom={zoom} onMoveStart={(event) => startShapeMove(shape, event)} onContextMenu={(event) => openLayerMenu(shape, event)} onChange={(patch) => updateShape(shape.id, patch)} onMove={(patch) => moveSelectionWithSnap(shape, patch)} onInteractionEnd={() => { groupMove.current = null; setSnapGuides({ x: null, y: null }); }} onTextChange={(text) => updateShape(shape.id, { text })} />)}
                       {draftShape && <div className={`draft-rectangle ${draftShape.type === 'ellipse' ? 'is-ellipse' : ''} ${draftShape.type === 'line' ? 'is-line' : ''}`} style={{ left: draftShape.x, top: draftShape.y, width: draftShape.width, height: draftShape.height, transform: draftShape.type === 'line' ? `rotate(${draftShape.rotation}deg)` : undefined }} />}
                       {snapGuides.x !== null && <div className="snap-guide vertical" style={{ left: snapGuides.x }} />}
