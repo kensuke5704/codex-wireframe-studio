@@ -59,7 +59,7 @@ const DRAW_TOOLS = [
   { id: 'pan', label: '画面移動', description: '拡大時にドラッグ', icon: Hand },
 ];
 
-function FreeShape({ shape, active, selectedCount, tool, zoom, onMoveStart, onContextMenu, onChange, onMove, onInteractionEnd, onTextChange }) {
+function FreeShape({ shape, active, selectedCount, tool, zoom, onMoveStart, onContextMenu, onChange, onMove, onInteractionEnd, onTextEditStart, onTextChange }) {
   const interaction = useRef(null);
 
   const beginMove = (event) => {
@@ -121,8 +121,16 @@ function FreeShape({ shape, active, selectedCount, tool, zoom, onMoveStart, onCo
           contentEditable={active && selectedCount === 1 && tool === 'select'}
           suppressContentEditableWarning
           onPointerDown={(event) => { if (active && selectedCount === 1) event.stopPropagation(); }}
-          onFocus={(event) => { if (shape.text === DEFAULT_TEXT) event.currentTarget.textContent = ''; }}
-          onBlur={(event) => onTextChange(event.currentTarget.textContent || DEFAULT_TEXT)}
+          onFocus={(event) => {
+            if (shape.text === DEFAULT_TEXT && shape.placeholder !== false) {
+              event.currentTarget.textContent = '';
+              onTextEditStart();
+            }
+          }}
+          onBlur={(event) => {
+            const text = event.currentTarget.textContent || DEFAULT_TEXT;
+            onTextChange(text, text === DEFAULT_TEXT);
+          }}
         >{shape.text}</span>
       )}
       {active && selectedCount === 1 && tool === 'select' && (
@@ -630,7 +638,7 @@ function App() {
     if (tool === 'text') {
       const shape = {
         id: nextId(), type: 'text', x: point.x, y: point.y, width: 150, height: 34,
-        text: DEFAULT_TEXT, color: '#20221e', border: '#20221e', fontSize: 16,
+        text: DEFAULT_TEXT, placeholder: true, color: '#20221e', border: '#20221e', fontSize: 16,
       };
       setShapes((current) => [...current, shape]);
       setSelectedShapeIds([shape.id]);
@@ -858,7 +866,7 @@ function App() {
                   <div className="screen blank-screen" style={{ '--canvas-zoom': zoom }} onPointerDown={beginRangeSelection} onPointerMove={continueRangeSelection} onPointerUp={finishRangeSelection}>
                     {!shapes.length && <div className="canvas-empty-hint"><Rectangle size={28} /><strong>最初の図形を追加</strong><span>長方形、楕円、文字を使って描き始めます。</span></div>}
                     <div className={`free-layer ${['rectangle', 'ellipse', 'line', 'text'].includes(tool) ? 'is-drawing' : ''}`} onPointerDown={startDrawing} onPointerMove={continueDrawing} onPointerUp={finishDrawing}>
-                      {shapes.map((shape) => <FreeShape key={shape.id} shape={shape} active={selectedShapeIds.includes(shape.id)} selectedCount={selectedShapeIds.length} tool={tool} zoom={zoom} onMoveStart={(event) => startShapeMove(shape, event)} onContextMenu={(event) => openLayerMenu(shape, event)} onChange={(patch) => updateShape(shape.id, patch)} onMove={(patch) => moveSelectionWithSnap(shape, patch)} onInteractionEnd={() => { groupMove.current = null; setSnapGuides({ x: null, y: null }); }} onTextChange={(text) => updateShape(shape.id, { text })} />)}
+                      {shapes.map((shape) => <FreeShape key={shape.id} shape={shape} active={selectedShapeIds.includes(shape.id)} selectedCount={selectedShapeIds.length} tool={tool} zoom={zoom} onMoveStart={(event) => startShapeMove(shape, event)} onContextMenu={(event) => openLayerMenu(shape, event)} onChange={(patch) => updateShape(shape.id, patch)} onMove={(patch) => moveSelectionWithSnap(shape, patch)} onInteractionEnd={() => { groupMove.current = null; setSnapGuides({ x: null, y: null }); }} onTextEditStart={() => updateShape(shape.id, { placeholder: false })} onTextChange={(text, placeholder) => updateShape(shape.id, { text, placeholder })} />)}
                       {draftShape && <div className={`draft-rectangle ${draftShape.type === 'ellipse' ? 'is-ellipse' : ''} ${draftShape.type === 'line' ? 'is-line' : ''}`} style={{ left: draftShape.x, top: draftShape.y, width: draftShape.width, height: draftShape.height, transform: draftShape.type === 'line' ? `rotate(${draftShape.rotation}deg)` : undefined }} />}
                       {snapGuides.x !== null && <div className="snap-guide vertical" style={{ left: snapGuides.x }} />}
                       {snapGuides.y !== null && <div className="snap-guide horizontal" style={{ top: snapGuides.y }} />}
@@ -902,7 +910,7 @@ function App() {
                 <button className="danger-button" onClick={() => { setShapes((current) => current.filter((shape) => !selectedShapeIds.includes(shape.id))); setSelectedShapeIds([]); }}><Trash size={16} /> 選択した要素を削除</button>
               </> : selectedShape ? <>
                 <button className="description-button" onClick={addDescriptionToSelection}><Plus size={16} /> この選択に説明を追加</button>
-                {selectedShape.type === 'text' && <label>文字<input value={selectedShape.text} onChange={(event) => updateShape(selectedShape.id, { text: event.target.value })} /></label>}
+                {selectedShape.type === 'text' && <label>文字<input value={selectedShape.text} onChange={(event) => updateShape(selectedShape.id, { text: event.target.value, placeholder: false })} /></label>}
                 <div className="coordinate-grid">
                   <label>X<input type="number" value={Math.round(selectedShape.x)} onChange={(event) => updateShape(selectedShape.id, { x: Number(event.target.value) })} /></label>
                   <label>Y<input type="number" value={Math.round(selectedShape.y)} onChange={(event) => updateShape(selectedShape.id, { y: Number(event.target.value) })} /></label>
