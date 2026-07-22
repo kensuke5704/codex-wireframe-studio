@@ -74,6 +74,20 @@ button:focus-visible, input:focus-visible, textarea:focus-visible { outline: 3px
 .draw-library button:hover { color: var(--text); background: var(--surface); }
 .draw-library button.active { color: var(--on-accent); background: var(--accent); border-color: var(--accent-strong); }
 .library-label { padding: 0 6px 7px; color: var(--muted); font-size: 10px; font-weight: 700; }
+.shape-tool-list { display: grid; gap: 7px; }
+.shape-tool-list > button { width: 100%; display: grid; grid-template-columns: 38px 1fr; align-items: center; gap: 10px; padding: 9px; text-align: left; border: 1px solid transparent; border-radius: 11px; background: transparent; color: var(--text); }
+.shape-tool-list > button:hover { border-color: var(--line); background: var(--surface); }
+.shape-tool-list > button.active { border-color: var(--accent-strong); background: color-mix(in srgb, var(--accent) 28%, var(--surface)); }
+.shape-tool-list > button > span { width: 38px; height: 38px; display: grid; place-items: center; border: 1px solid var(--line); border-radius: 9px; background: var(--surface); color: var(--muted); }
+.shape-tool-list > button.active > span { border-color: var(--accent-strong); color: var(--on-accent); background: var(--accent); }
+.shape-tool-list > button div { display: flex; min-width: 0; flex-direction: column; gap: 2px; }
+.shape-tool-list strong { font-size: 13px; }
+.shape-tool-list small { color: var(--muted); font-size: 10px; }
+.clipboard-actions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 7px; margin-top: 14px; padding-top: 14px; border-top: 1px solid var(--line); }
+.clipboard-actions button { min-width: 0; height: 36px; display: flex; align-items: center; justify-content: center; gap: 5px; border: 1px solid var(--line); border-radius: 9px; background: var(--surface); color: var(--text); font-size: 10px; font-weight: 600; }
+.clipboard-actions button:hover:not(:disabled) { border-color: var(--line-strong); background: var(--surface-2); }
+.clipboard-actions button:disabled, .clipboard-tools button:disabled { cursor: not-allowed; opacity: .38; }
+.clipboard-actions kbd { color: var(--faint); font: 8px ui-monospace, 'SFMono-Regular', monospace; }
 .block-library { display: grid; gap: 8px; }
 .library-item { display: grid; grid-template-columns: 38px 1fr auto; align-items: center; text-align: left; gap: 10px; width: 100%; padding: 10px; border: 1px solid transparent; background: transparent; color: var(--text); border-radius: 12px; }
 .library-item:hover { background: var(--surface); border-color: var(--line); }
@@ -96,6 +110,9 @@ button:focus-visible, input:focus-visible, textarea:focus-visible { outline: 3px
 .editor-tools button { width: 32px; height: 32px; display: grid; place-items: center; border: 1px solid transparent; border-radius: 8px; background: transparent; color: var(--muted); }
 .editor-tools button:hover { color: var(--text); background: var(--surface-2); }
 .editor-tools button.active { color: var(--on-accent); background: var(--accent); border-color: var(--accent-strong); }
+.clipboard-tools { display: flex; gap: 3px; padding-left: 8px; border-left: 1px solid var(--line-strong); }
+.clipboard-tools button { width: 32px; height: 32px; display: grid; place-items: center; border: 1px solid transparent; border-radius: 8px; background: transparent; color: var(--muted); }
+.clipboard-tools button:hover:not(:disabled) { color: var(--text); background: var(--surface-2); }
 .device-stage { padding: 30px; overflow: auto; display: grid; place-items: start center; flex: 1; }
 .device-frame { width: 354px; min-height: 680px; background: #f8f9f7; border: 8px solid #2f332e; border-radius: 30px; overflow: hidden; box-shadow: var(--shadow), 0 0 0 1px rgba(255,255,255,.15) inset; transition: width .3s ease, border-radius .3s ease; }
 .web-stage .device-frame { width: min(850px, 100%); min-height: 570px; border-width: 6px; border-radius: 16px; }
@@ -105,6 +122,7 @@ button:focus-visible, input:focus-visible, textarea:focus-visible { outline: 3px
 .device-chrome > div i { width: 7px; height: 7px; background: #c9cec5; border-radius: 50%; }
 .web-stage .device-chrome { justify-content: flex-start; gap: 18px; border-bottom: 1px solid #e5e8e0; }
 .screen { position: relative; min-height: 645px; background: #fafbf8; color: #242721; padding-bottom: 18px; }
+.blank-screen { padding-bottom: 0; overflow: hidden; background-image: linear-gradient(rgba(215, 220, 210, .38) 1px, transparent 1px), linear-gradient(90deg, rgba(215, 220, 210, .38) 1px, transparent 1px); background-size: 16px 16px; }
 .web-stage .screen { min-height: 530px; }
 .wire-block { position: relative; cursor: pointer; border: 2px solid transparent; transition: border-color .18s ease, background .18s ease; }
 .wire-block:hover { border-color: #cbd3bd; }
@@ -148,16 +166,24 @@ button:focus-visible, input:focus-visible, textarea:focus-visible { outline: 3px
 .empty-canvas { min-height: 520px; display: flex; align-items: center; justify-content: center; flex-direction: column; gap: 8px; color: #7d8379; }
 .empty-canvas strong { font-size: 14px; color: #3c4039; }
 .empty-canvas span { font-size: 9px; }
+.canvas-empty-hint { position: absolute; inset: 0; z-index: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 7px; color: #8a9085; pointer-events: none; }
+.canvas-empty-hint strong { color: #575d53; font-size: 12px; }
+.canvas-empty-hint span { max-width: 180px; text-align: center; font-size: 8px; line-height: 1.5; }
 .free-layer { position: absolute; inset: 0; z-index: 2; min-height: 100%; pointer-events: none; touch-action: none; }
 .free-layer.is-drawing { pointer-events: auto; cursor: crosshair; background-image: radial-gradient(rgba(143, 186, 22, .35) .6px, transparent .6px); background-size: 12px 12px; }
 .free-shape { position: absolute; min-width: 24px; min-height: 20px; pointer-events: auto; user-select: none; border: 1px solid transparent; border-radius: 3px; touch-action: none; }
 .free-shape:hover { outline: 1px solid rgba(143, 186, 22, .5); outline-offset: 2px; }
 .free-shape.is-active { outline: 2px solid #8fba16; outline-offset: 3px; }
 .free-rectangle { border-style: solid; }
+.free-ellipse { border-style: solid; border-radius: 50%; }
 .free-text { display: flex; align-items: flex-start; padding: 3px 4px; font-weight: 600; line-height: 1.25; }
 .free-text span { width: 100%; min-height: 1em; cursor: text; outline: none; white-space: pre-wrap; overflow-wrap: anywhere; }
 .resize-handle { position: absolute; right: -8px; bottom: -8px; width: 13px; height: 13px; padding: 0; border: 2px solid #fafbf8; border-radius: 3px; background: #8fba16; cursor: nwse-resize; }
 .draft-rectangle { position: absolute; border: 1px solid #6f930e; border-radius: 3px; background: rgba(200, 240, 79, .24); pointer-events: none; }
+.draft-rectangle.is-ellipse { border-radius: 50%; }
+.snap-guide { position: absolute; z-index: 4; pointer-events: none; background: #82aa13; }
+.snap-guide.vertical { top: 0; bottom: 0; width: 1px; }
+.snap-guide.horizontal { left: 0; right: 0; height: 1px; }
 
 .right-tabs { height: 54px; display: flex; align-items: stretch; padding: 0 16px; border-bottom: 1px solid var(--line); }
 .right-tabs > button:not(.mobile-close) { padding: 0 10px; border: 0; border-bottom: 2px solid transparent; background: transparent; color: var(--muted); font-size: 12px; font-weight: 600; }
@@ -208,6 +234,7 @@ button:focus-visible, input:focus-visible, textarea:focus-visible { outline: 3px
   .canvas-toolbar > span { display: none; }
   .toolbar-left { width: 100%; justify-content: space-between; }
   .editor-tools { margin-left: auto; }
+  .clipboard-tools { display: none; }
   .device-stage { padding: 18px 12px 80px; place-items: start center; }
   .device-frame { width: min(354px, calc(100vw - 28px)); }
   .web-stage .device-frame { width: 680px; }
